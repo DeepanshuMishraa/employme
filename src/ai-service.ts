@@ -1,6 +1,7 @@
 import { createGroq, groq } from "@ai-sdk/groq";
 import { generateText } from "ai";
 import { Config, Effect } from "effect";
+import { GetDateTime } from "./tools";
 
 
 const SYSTEM_PROMPT = `
@@ -64,6 +65,9 @@ export const GetLLMResponse = (input: string) =>
           model: groq("openai/gpt-oss-120b"),
           system: SYSTEM_PROMPT,
           prompt: input,
+          tools: {
+            getDateTimeTool: GetDateTime,
+          }
         }).then(({ text }) => text);
       },
       catch: (cause) => new Error("Failed to generate response", { cause }),
