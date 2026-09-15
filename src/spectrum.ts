@@ -1,6 +1,7 @@
 import { Config, Effect, Stream } from "effect";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
+import { GetLLMResponse } from "./ai-service";
 
 export const SpectrumService = Effect.gen(function* () {
   const projectId = yield* Config.String("SPECTRUM_PROJECT_ID");
@@ -21,13 +22,15 @@ export const SpectrumService = Effect.gen(function* () {
   const messages = Stream.fromAsyncIterable(app.messages, (cause) => new Error("Message Stream Failed", { cause }));
 
 
-  yield* messages.pipe(
-    Stream.runForEach(([space, message]) => {
+  yield* Stream.runForEach(messages, ([space, message]) => {
       const content = message.content;
       if (!("text" in content)) return Effect.void;
 
-      return Effect.promise(() => space.send(content.text).then(() => undefined));
-    }),
-  );
+      return Effect.gen(function* () {
+        const response = yield* GetLLMResponse(content.text);
+        yield* Effect.promise(() => space.send(response).then(() => undefined));
+      });
+
+    });
 });
 
