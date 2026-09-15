@@ -1,0 +1,19 @@
+{
+  "name": "job-agent",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "effect": "^4.0.0-rc.115",
+    "spectrum-ts": "^12.8.0"
+  }
+}
