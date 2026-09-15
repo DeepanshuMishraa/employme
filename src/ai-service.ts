@@ -1,8 +1,10 @@
-import { createGroq, groq } from "@ai-sdk/groq";
-import { generateText } from "ai";
-import { Config, Effect } from "effect";
-import { GetDateTime } from "./tools";
-
+import {
+  OpenAiClient,
+  OpenAiLanguageModel
+} from "@effect/ai-openai";
+import { Config, Effect, Layer } from "effect";
+import { LanguageModel } from "effect/unstable/ai";
+import { FetchHttpClient } from "effect/unstable/http";
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -54,22 +56,35 @@ Do not find jobs just to give Deepanshu a list.
 Find jobs that are genuinely worth his time.
 `;
 
-export const GetLLMResponse = (input: string) =>
-  Effect.gen(function* () {
-    const groqApiKey = yield* Config.String("GROK_API_KEY");
+const OpenAI = OpenAiClient.layerConfig({
+  apiKey: Config.Redacted("OPENAI_API_KEY"),
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+);
 
-    return yield* Effect.tryPromise({
-      try: () => {
-        const groq = createGroq({ apiKey: groqApiKey });
-        return generateText({
-          model: groq("openai/gpt-oss-120b"),
-          system: SYSTEM_PROMPT,
-          prompt: input,
-          tools: {
-            getDateTimeTool: GetDateTime,
-          }
-        }).then(({ text }) => text);
-      },
-      catch: (cause) => new Error("Failed to generate response", { cause }),
+
+const model = OpenAiLanguageModel.model("gpt-5.6-luna");
+
+
+export const GetLLMResponse = (input: string) => {
+  const prompt = [
+    {
+      role: "system" as const,
+      content: SYSTEM_PROMPT
+    },
+    {
+      role: "user" as const,
+      content: input
+    }
+  ];
+  return Effect.gen(function* () {
+    const response = yield* LanguageModel.generateText({
+      prompt,
     });
-  });
+
+    return response.text;
+  }).pipe(
+    Effect.provide(model),
+    Effect.provide(OpenAI)
+  );
+}

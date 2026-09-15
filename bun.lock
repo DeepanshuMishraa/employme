@@ -6,6 +6,7 @@
       "name": "job-agent",
       "dependencies": {
         "@ai-sdk/groq": "^4.0.41",
+        "@effect/ai-openai": "^4.0.0-rc.115",
         "ai": "^7.0.101",
         "effect": "^4.0.0-rc.115",
         "spectrum-ts": "^12.8.0",
@@ -28,6 +29,8 @@
     "@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.40", "", { "dependencies": { "@ai-sdk/provider": "4.0.14", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.29.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-zsXPwSAQ9mRJ2hvyITaLOYUyuGrBmzFhJXOg4mllGmla1PfNxZcm4GwqMiV2xQaDgcgBMdUGxXkp9xekZZNIkg=="],
 
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.15.0", "", {}, "sha512-DAheWUkVr/SJTWCc+lg9dhY0eN4SaWlf4+bG1KzHeXbnqt0AfB/NX0Z+VunGlM1ki1B4zVvye27MpKh/svySUA=="],
+
+    "@effect/ai-openai": ["@effect/ai-openai@4.0.0-rc.115", "", { "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-b/+hnvukeD8a8k9mevgz8X4HnzPV09bllRlij4NGIJGW/wIYkDtCEyzbjM6kxaQRWjOKRSz5wsI8XsWLgGvg3A=="],
 
     "@grpc/grpc-js": ["@grpc/grpc-js@1.14.4", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ=="],
 
