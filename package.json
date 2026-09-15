@@ -13,6 +13,8 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^4.0.41",
+    "ai": "^7.0.101",
     "effect": "^4.0.0-rc.115",
     "spectrum-ts": "^12.8.0"
   }

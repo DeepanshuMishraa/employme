@@ -1,6 +1,13 @@
-import { Effect } from "effect";
+import { Console, Effect } from "effect";
+import { SpectrumService } from "./spectrum";
 
 
-const program: Effect.Effect<String> = Effect.succeed("Hello World");
+const program = Effect.gen(function* () {
+  yield* Console.log("Service Is Up");
+  const spectrum = yield* SpectrumService;
 
-console.log(Effect.runSync(program))
+  return spectrum;
+});
+
+
+await Effect.runPromise(program);

@@ -2,7 +2,7 @@ import { Config, Effect, Stream } from "effect";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
-const program = Effect.gen(function* () {
+export const SpectrumService = Effect.gen(function* () {
   const projectId = yield* Config.String("SPECTRUM_PROJECT_ID");
   const projectSecret = yield* Config.String("SPECTRUM_PROJECT_SECRET");
 
@@ -31,4 +31,3 @@ const program = Effect.gen(function* () {
   );
 });
 
-await Effect.runPromise(program)
