@@ -2,41 +2,63 @@ import { Effect, Schema } from "effect";
 import { AiError, Tool, Toolkit } from "effect/unstable/ai";
 import { listAllRepos, listFilesFromRepo } from "./octokit";
 
-const UserGithubData = Tool.make("get_github_repository_data", {
-  description: "List the authenticated GitHub user's repositories and relevant files",
+const ListGithubRepos = Tool.make("list_github_repositories", {
+  description: "List repositories belonging to the authenticated GitHub user",
   parameters: Schema.Struct({
     scope: Schema.Literal("all")
   }),
   success: Schema.Struct({
-    repositories: Schema.Array(
-      Schema.Struct({
-        repo: Schema.String,
-        files: Schema.Array(Schema.String)
-      })
-    )
+    repositories: Schema.Array(Schema.String)
   })
 });
 
-export const GithubTools = Toolkit.make(UserGithubData);
+const GetGithubRepoFiles = Tool.make("get_github_repository_files", {
+  description: "List relevant files in one authenticated GitHub repository by name",
+  parameters: Schema.Struct({
+    repository: Schema.String
+  }),
+  success: Schema.Struct({
+    repository: Schema.String,
+    files: Schema.Array(Schema.String)
+  })
+});
+
+const toAiError = (cause: unknown) =>
+  new AiError.UnknownError({
+    description: cause instanceof Error ? cause.message : String(cause)
+  });
+
+export const GithubTools = Toolkit.make(ListGithubRepos, GetGithubRepoFiles);
 
 export const GithubToolLayer = GithubTools.toLayer({
-  get_github_repository_data: () =>
+  list_github_repositories: () =>
     Effect.gen(function* () {
       const repos = yield* listAllRepos;
 
-      const repositories = yield* Effect.forEach(repos, ({ owner, name }) =>
-        Effect.map(listFilesFromRepo(owner, name), (files) => ({
-          repo: `${owner}/${name}`,
-          files
-        }))
+      return {
+        repositories: repos.map(({ owner, name }) => `${owner}/${name}`)
+      };
+    }).pipe(Effect.mapError(toAiError)),
+
+  get_github_repository_files: ({ repository }) =>
+    Effect.gen(function* () {
+      const repos = yield* listAllRepos;
+      const match = repos.find(
+        ({ owner, name }) =>
+          name === repository || `${owner}/${name}` === repository
       );
 
-      return { repositories };
-    }).pipe(
-      Effect.mapError((cause) =>
-        new AiError.UnknownError({
-          description: cause instanceof Error ? cause.message : String(cause)
-        })
-      )
-    )
+      if (!match) {
+        return yield* Effect.fail(
+          new Error(`Repository not found: ${repository}`)
+        );
+      }
+
+      const files = yield* listFilesFromRepo(match.owner, match.name);
+
+      return {
+        repository: `${match.owner}/${match.name}`,
+        files
+      };
+    }).pipe(Effect.mapError(toAiError))
 });
