@@ -5,7 +5,7 @@ import {
 import { Config, Effect, Layer } from "effect";
 import { Chat } from "effect/unstable/ai";
 import { FetchHttpClient } from "effect/unstable/http";
-import { TimeToolLayer, TimeTools } from "./tools";
+import { GithubToolLayer, GithubTools } from "./tools";
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -82,14 +82,14 @@ export const GetLLMResponse = (input: string) => {
     const chat = yield* Chat.empty;
     const response = yield* chat.generateText({
       prompt,
-      toolkit: TimeTools
+      toolkit: GithubTools
     });
 
     if (response.text.trim().length > 0) return response.text;
 
     const followUp = yield* chat.generateText({
       prompt: "Use the tool result and answer the user's original question directly. Do not call another tool.",
-      toolkit: TimeTools,
+      toolkit: GithubTools,
       toolChoice: "none"
     });
 
@@ -97,6 +97,6 @@ export const GetLLMResponse = (input: string) => {
   }).pipe(
     Effect.provide(model),
     Effect.provide(OpenAI),
-    Effect.provide(TimeToolLayer)
+    Effect.provide(GithubToolLayer)
   );
 }
