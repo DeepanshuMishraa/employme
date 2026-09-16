@@ -4,31 +4,13 @@ import { Config, Effect, FileSystem, Layer, Schema } from "effect";
 import { AiError, Chat, Tool, Toolkit } from "effect/unstable/ai";
 import { FetchHttpClient } from "effect/unstable/http";
 import { listAllRepos, listFilesFromRepo } from "./octokit";
+import { JobSchema, searchJobs } from "./jobs";
 
 export const OpenAI = OpenAiClient.layerConfig({
   apiKey: Config.Redacted("OPENAI_API_KEY")
 }).pipe(Layer.provide(FetchHttpClient.layer));
 
 export const model = OpenAiLanguageModel.model("gpt-5.6-luna");
-
-const JobSchema = Schema.Struct({
-  id: Schema.String,
-  company: Schema.String,
-  title: Schema.String,
-  description: Schema.String,
-  location: Schema.NullOr(Schema.String),
-  workMode: Schema.Literals(["remote", "hybrid", "onsite", "unknown"]),
-  compensation: Schema.Struct({
-    min: Schema.NullOr(Schema.Number),
-    max: Schema.NullOr(Schema.Number),
-    currency: Schema.NullOr(Schema.String)
-  }),
-  applyUrl: Schema.String,
-  sourceUrl: Schema.String,
-  postedAt: Schema.NullOr(Schema.String),
-  fetchedAt: Schema.String,
-  technologies: Schema.Array(Schema.String)
-});
 
 const SearchJobs = Tool.make("search_jobs", {
   description: "Find currently listed jobs matching roles, locations, and work mode",
@@ -109,8 +91,7 @@ const toAiError = (cause: unknown) =>
   });
 
 const LocalFileSystem = FileSystem.makeNoop({
-  readFileString: (path) =>
-    Effect.promise(() => readFile(path, "utf8"))
+  readFileString: (path) => Effect.promise(() => readFile(path, "utf8"))
 });
 
 const profilePrompt = (job: unknown, repositories: unknown, resume: string) => `
@@ -145,99 +126,7 @@ export const GithubTools = Toolkit.make(
 );
 
 export const GithubToolLayer = GithubTools.toLayer({
-  search_jobs: ({ roles, locations, workMode, maxResults }) =>
-    Effect.gen(function* () {
-      const response = yield* Effect.tryPromise({
-        try: () => fetch("https://www.arbeitnow.com/api/job-board-api"),
-        catch: (cause) => new Error("Failed to fetch jobs", { cause })
-      });
-
-      if (!response.ok) {
-        return yield* Effect.fail(
-          new Error(`Job source returned HTTP ${response.status}`)
-        );
-      }
-
-      const payload = yield* Effect.tryPromise({
-        try: () => response.json(),
-        catch: (cause) => new Error("Failed to read job source response", { cause })
-      });
-      const decoded = yield* Schema.decodeUnknownEffect(
-        Schema.Struct({
-          data: Schema.Array(
-            Schema.Struct({
-              slug: Schema.String,
-              company_name: Schema.String,
-              title: Schema.String,
-              description: Schema.String,
-              location: Schema.String,
-              remote: Schema.Boolean,
-              tags: Schema.Array(Schema.String),
-              created_at: Schema.Number,
-              url: Schema.String
-            })
-          )
-        })
-      )(payload);
-
-      const defaultRoleTerms = [
-        "backend",
-        "full stack",
-        "software engineer",
-        "ai engineer",
-        "platform engineer",
-        "developer"
-      ];
-      const defaultSkillTerms = [
-        "typescript",
-        "python",
-        "go",
-        "rust",
-        "react",
-        "fastapi",
-        "hono",
-        "postgresql",
-        "redis",
-        "aws",
-        "docker"
-      ];
-      const roleTerms = (roles ?? []).map((role) => role.toLowerCase());
-      const locationTerms = (locations ?? [])
-        .map((location) => location.toLowerCase())
-        .filter((location) => !["global", "worldwide", "anywhere"].includes(location));
-      const fetchedAt = new Date().toISOString();
-      const limit = Math.max(1, Math.min(maxResults ?? 10, 50));
-      const stripHtml = (value: string) =>
-        value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-
-      const jobs = decoded.data
-        .filter((job) => {
-          const searchable = `${job.title} ${job.description} ${job.tags.join(" ")}`.toLowerCase();
-          const searchTerms = roleTerms.length > 0 ? roleTerms : defaultRoleTerms;
-          const roleMatches = searchTerms.some((term) => searchable.includes(term));
-          const skillMatches = defaultSkillTerms.some((term) => searchable.includes(term));
-          const locationMatches = locationTerms.length === 0 || locationTerms.some((term) => job.location.toLowerCase().includes(term));
-          const modeMatches = workMode === undefined || workMode !== "remote" || job.remote;
-          return (roleMatches || skillMatches) && locationMatches && modeMatches;
-        })
-        .slice(0, limit)
-        .map((job) => ({
-          id: `arbeitnow:${job.slug}`,
-          company: job.company_name,
-          title: job.title,
-          description: stripHtml(job.description),
-          location: job.location || null,
-          workMode: job.remote ? "remote" as const : "unknown" as const,
-          compensation: { min: null, max: null, currency: null },
-          applyUrl: job.url,
-          sourceUrl: "https://www.arbeitnow.com/",
-          postedAt: new Date(job.created_at * 1000).toISOString(),
-          fetchedAt,
-          technologies: job.tags
-        }));
-
-      return { jobs };
-    }).pipe(Effect.mapError(toAiError)),
+  search_jobs: (query) => searchJobs(query).pipe(Effect.mapError(toAiError)),
 
   list_github_repositories: () =>
     Effect.gen(function* () {
