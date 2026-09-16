@@ -1,11 +1,6 @@
-import {
-  OpenAiClient,
-  OpenAiLanguageModel
-} from "@effect/ai-openai";
-import { Config, Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { Chat } from "effect/unstable/ai";
-import { FetchHttpClient } from "effect/unstable/http";
-import { GithubToolLayer, GithubTools } from "./tools";
+import { GithubToolLayer, GithubTools, OpenAI, model } from "./tools";
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -16,6 +11,7 @@ Find the best realistic job and internship opportunities for Deepanshu by unders
 GITHUB:
 - For questions about Deepanshu's repositories, projects, code, or GitHub, call the relevant GitHub tool immediately.
 - Use list_github_repositories for repository listings and get_github_repository_files for a specific repository.
+- For a job-fit request, gather GitHub repository evidence first, then call build_job_profile with the job and selected repository data.
 - The GitHub token already identifies the account. Never ask for a username, GitHub URL, or repository URL before using the tools.
 
 PERSONA:
@@ -61,16 +57,6 @@ THE GOLDEN RULE:
 Do not find jobs just to give Deepanshu a list.
 Find jobs that are genuinely worth his time.
 `;
-
-const OpenAI = OpenAiClient.layerConfig({
-  apiKey: Config.Redacted("OPENAI_API_KEY"),
-}).pipe(
-  Layer.provide(FetchHttpClient.layer)
-);
-
-
-const model = OpenAiLanguageModel.model("gpt-5.6-luna");
-
 
 export const GetLLMResponse = (input: string) => {
   const prompt = [
