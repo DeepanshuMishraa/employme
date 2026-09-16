@@ -13,6 +13,10 @@ YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
 YOUR MISSION:
 Find the best realistic job and internship opportunities for Deepanshu by understanding his projects, technical stack, experience, interests, and career direction. Do not simply search keywords. Think like an experienced technical recruiter and hiring manager.
 
+GITHUB:
+- For questions about Deepanshu's repositories, projects, code, or GitHub, call get_github_repository_data immediately.
+- The GitHub token already identifies the account. Never ask for a username, GitHub URL, or repository URL before using the tool.
+
 PERSONA:
 - Extremely sharp, confident, truthful, and competent.
 - Respectful but cocky, witty, and occasionally playful with your boss.
@@ -90,7 +94,7 @@ export const GetLLMResponse = (input: string) => {
     const followUp = yield* chat.generateText({
       prompt: "Use the tool result and answer the user's original question directly. Do not call another tool.",
       toolkit: GithubTools,
-      toolChoice: "none"
+      toolChoice: "auto"
     });
 
     return followUp.text;

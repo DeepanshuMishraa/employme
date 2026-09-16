@@ -13,14 +13,17 @@ export const listAllRepos = Effect.gen(function* () {
     try: () =>
       octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
         visibility: "all",
-        affiliation: "owner,collaborator,organization_member",
+        affiliation: "owner",
         sort: "updated",
         per_page: 100
       }),
     catch: (cause) => new Error("Failed to list all repositories", { cause })
   });
 
-  return repos.map((repo) => repo.name);
+  return repos.map((repo) => ({
+    owner: repo.owner.login,
+    name: repo.name
+  }));
 });
 
 
@@ -32,6 +35,10 @@ export const listFilesFromRepo = (owner: string, repo: string) =>
       try: () => octokit.rest.repos.get({ owner, repo }),
       catch: (cause) => new Error("Failed to get repository", { cause })
     });
+
+    if (repository.data.size === 0 || repository.data.default_branch.length === 0) {
+      return [];
+    }
 
     const ref = yield* Effect.tryPromise({
       try: () =>
