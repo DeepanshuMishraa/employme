@@ -15,6 +15,7 @@
   "dependencies": {
     "@effect/ai-openai": "^4.0.0-rc.115",
     "effect": "^4.0.0-rc.115",
+    "octokit": "^5.0.5",
     "spectrum-ts": "^12.8.0"
   }
 }
