@@ -1,5 +1,5 @@
 import { Config, Effect, Stream } from "effect";
-import { Spectrum, markdown } from "spectrum-ts";
+import { Spectrum, markdown, typing } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 import { GetLLMResponse } from "./ai-service";
 
@@ -28,7 +28,10 @@ export const SpectrumService = Effect.gen(function* () {
 
     return Effect.gen(function* () {
       const response = yield* GetLLMResponse(content.text);
-      yield* Effect.promise(() => space.send(markdown(response)).then(() => undefined));
+      yield* Effect.promise(() => space.send(typing()).then(() => {
+        typing("stop");
+        return space.send(markdown(response));
+      }));
     });
 
   });
