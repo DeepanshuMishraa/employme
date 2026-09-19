@@ -20,20 +20,23 @@ export const SpectrumService = Effect.gen(function* () {
 
 
   const messages = Stream.fromAsyncIterable(app.messages, (cause) => new Error("Message Stream Failed", { cause }));
-
+  const history = new Map<string, string[]>();
 
   yield* Stream.runForEach(messages, ([space, message]) => {
     const content = message.content;
     if (!("text" in content)) return Effect.void;
 
     return Effect.gen(function* () {
-      const response = yield* GetLLMResponse(content.text);
+      const messages = history.get(space.id) ?? [];
+      const context = [...messages, `User: ${content.text}`].slice(-3);
+      const response = yield* GetLLMResponse(content.text, context.slice(0, -1));
+      history.set(space.id, [...context, `Assistant: ${response}`].slice(-3));
+
       yield* Effect.promise(() => space.send(typing()).then(() => {
         typing("stop");
         return space.send(markdown(response));
       }));
     });
-
   });
 });
 

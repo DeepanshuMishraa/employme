@@ -64,7 +64,10 @@ Do not find jobs just to give Deepanshu a list.
 Find jobs that are genuinely worth his time.
 `;
 
-export const GetLLMResponse = (input: string) => {
+export const GetLLMResponse = (input: string, recentMessages: readonly string[] = []) => {
+  const context = recentMessages.length > 0
+    ? `\n\nRecent conversation context:\n${recentMessages.join("\n")}`
+    : "";
   const prompt = [
     {
       role: "system" as const,
@@ -72,7 +75,7 @@ export const GetLLMResponse = (input: string) => {
     },
     {
       role: "user" as const,
-      content: input
+      content: `${input}${context}`
     }
   ];
   return Effect.gen(function* () {
