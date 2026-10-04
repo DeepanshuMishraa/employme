@@ -1,97 +1,28 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai";
+import { openai } from "@ai-sdk/openai";
+import { generateText, Output, tool } from "ai";
 import { readFile } from "node:fs/promises";
-import { Config, Effect, FileSystem, Layer, Schema } from "effect";
-import { AiError, Chat, Tool, Toolkit } from "effect/unstable/ai";
-import { FetchHttpClient } from "effect/unstable/http";
+import { z } from "zod";
 import { listAllRepos, listFilesFromRepo } from "./octokit";
-import { JobSchema, searchJobs } from "./jobs";
+import { searchJobs } from "./jobs";
+import { JobSchema } from "./schema";
 
-export const OpenAI = OpenAiClient.layerConfig({
-  apiKey: Config.Redacted("OPENAI_API_KEY")
-}).pipe(Layer.provide(FetchHttpClient.layer));
+export const model = openai("gpt-6-luna");
 
-export const model = OpenAiLanguageModel.model("gpt-5.6-luna");
-
-const SearchJobs = Tool.make("search_jobs", {
-  description: "Find currently listed jobs matching roles, locations, and work mode",
-  parameters: Schema.Struct({
-    roles: Schema.optional(Schema.Array(Schema.String)),
-    locations: Schema.optional(Schema.Array(Schema.String)),
-    workMode: Schema.optional(Schema.Literals(["remote", "hybrid", "onsite"])),
-    maxResults: Schema.optional(Schema.Int)
-  }),
-  success: Schema.Struct({
-    jobs: Schema.Array(JobSchema)
-  })
-});
-
-const ListGithubRepos = Tool.make("list_github_repositories", {
-  description: "List repositories belonging to the authenticated GitHub user",
-  parameters: Schema.Struct({
-    scope: Schema.Literal("all")
-  }),
-  success: Schema.Struct({
-    repositories: Schema.Array(Schema.String)
-  })
-});
-
-const GetGithubRepoFiles = Tool.make("get_github_repository_files", {
-  description: "List relevant files in one authenticated GitHub repository by name",
-  parameters: Schema.Struct({
-    repository: Schema.String
-  }),
-  success: Schema.Struct({
-    repository: Schema.String,
-    files: Schema.Array(Schema.String)
-  })
-});
-
-const BuildJobProfile = Tool.make("build_job_profile", {
-  description: "Build a truthful candidate profile for a job from selected GitHub repository evidence",
-  parameters: Schema.Struct({
-    job: Schema.Struct({
-      id: Schema.String,
-      title: Schema.String,
-      description: Schema.String,
-      location: Schema.String,
-      compensation: Schema.NullOr(Schema.Number)
-    }),
-    repositories: Schema.Array(
-      Schema.Struct({
-        repository: Schema.String,
-        files: Schema.Array(Schema.String)
-      })
-    )
-  }),
-  success: Schema.Struct({
-    summary: Schema.String,
-    targetRole: Schema.String,
-    selectedRepositories: Schema.Array(
-      Schema.Struct({
-        repository: Schema.String,
-        reason: Schema.String
-      })
-    ),
-    skills: Schema.Array(
-      Schema.Struct({
-        name: Schema.String,
-        evidence: Schema.String,
-        strength: Schema.Literals(["strong", "working", "limited"])
-      })
-    ),
-    relevantExperience: Schema.Array(Schema.String),
-    gaps: Schema.Array(Schema.String),
-    resumeBullets: Schema.Array(Schema.String)
-  })
-});
-
-const toAiError = (cause: unknown) =>
-  new AiError.UnknownError({
-    description: cause instanceof Error ? cause.message : String(cause)
-  });
-
-const LocalFileSystem = FileSystem.makeNoop({
-  readFileString: (path) => Effect.promise(() => readFile(path, "utf8"))
+const ProfileSchema = z.object({
+  summary: z.string(),
+  targetRole: z.string(),
+  selectedRepositories: z.array(z.object({
+    repository: z.string(),
+    reason: z.string()
+  })),
+  skills: z.array(z.object({
+    name: z.string(),
+    evidence: z.string(),
+    strength: z.enum(["strong", "working", "limited"])
+  })),
+  relevantExperience: z.array(z.string()),
+  gaps: z.array(z.string()),
+  resumeBullets: z.array(z.string())
 });
 
 const profilePrompt = (job: unknown, repositories: unknown, resume: string) => `
@@ -118,64 +49,72 @@ GITHUB REPOSITORIES:
 ${JSON.stringify(repositories)}
 `;
 
-export const GithubTools = Toolkit.make(
-  SearchJobs,
-  ListGithubRepos,
-  GetGithubRepoFiles,
-  BuildJobProfile
-);
+export const tools = {
+  search_jobs: tool({
+    description: "Find currently listed jobs matching roles, locations, and work mode",
+    inputSchema: z.object({
+      roles: z.array(z.string()).optional(),
+      locations: z.array(z.string()).optional(),
+      workMode: z.enum(["remote", "hybrid", "onsite"]).optional(),
+      maxResults: z.number().int().optional()
+    }),
+    outputSchema: z.object({ jobs: z.array(JobSchema) }),
+    execute: (query) => searchJobs(query)
+  }),
 
-export const GithubToolLayer = GithubTools.toLayer({
-  search_jobs: (query) => searchJobs(query).pipe(Effect.mapError(toAiError)),
+  list_github_repositories: tool({
+    description: "List repositories belonging to the authenticated GitHub user",
+    inputSchema: z.object({ scope: z.literal("all") }),
+    outputSchema: z.object({ repositories: z.array(z.string()) }),
+    execute: async () => {
+      const repos = await listAllRepos();
+      return { repositories: repos.map(({ owner, name }) => `${owner}/${name}`) };
+    }
+  }),
 
-  list_github_repositories: () =>
-    Effect.gen(function* () {
-      const repos = yield* listAllRepos;
-
-      return {
-        repositories: repos.map(({ owner, name }) => `${owner}/${name}`)
-      };
-    }).pipe(Effect.mapError(toAiError)),
-
-  get_github_repository_files: ({ repository }) =>
-    Effect.gen(function* () {
-      const repos = yield* listAllRepos;
+  get_github_repository_files: tool({
+    description: "List relevant files in one authenticated GitHub repository by name",
+    inputSchema: z.object({ repository: z.string() }),
+    outputSchema: z.object({ repository: z.string(), files: z.array(z.string()) }),
+    execute: async ({ repository }) => {
+      const repos = await listAllRepos();
       const match = repos.find(
-        ({ owner, name }) =>
-          name === repository || `${owner}/${name}` === repository
+        ({ owner, name }) => name === repository || `${owner}/${name}` === repository
       );
 
       if (!match) {
-        return yield* Effect.fail(
-          new Error(`Repository not found: ${repository}`)
-        );
+        throw new Error(`Repository not found: ${repository}. Call list_github_repositories to see valid names.`);
       }
 
-      const files = yield* listFilesFromRepo(match.owner, match.name);
+      const files = await listFilesFromRepo(match.owner, match.name);
+      return { repository: `${match.owner}/${match.name}`, files };
+    }
+  }),
 
-      return {
-        repository: `${match.owner}/${match.name}`,
-        files
-      };
-    }).pipe(Effect.mapError(toAiError)),
-
-  build_job_profile: ({ job, repositories }) =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const resume = yield* fileSystem.readFileString("refs/resume.md");
-
-      const chat = yield* Chat.empty;
-      const response = yield* chat.generateObject({
+  build_job_profile: tool({
+    description: "Build a truthful candidate profile for a job from selected GitHub repository evidence",
+    inputSchema: z.object({
+      job: z.object({
+        id: z.string(),
+        title: z.string(),
+        description: z.string(),
+        location: z.string(),
+        compensation: z.number().nullable()
+      }),
+      repositories: z.array(z.object({
+        repository: z.string(),
+        files: z.array(z.string())
+      }))
+    }),
+    outputSchema: ProfileSchema,
+    execute: async ({ job, repositories }) => {
+      const resume = await readFile("refs/resume.md", "utf8");
+      const { output } = await generateText({
+        model,
         prompt: profilePrompt(job, repositories, resume),
-        schema: BuildJobProfile.successSchema
+        output: Output.object({ schema: ProfileSchema })
       });
-
-      return response.value;
-    }).pipe(
-      Effect.provide(model),
-      Effect.provide(OpenAI),
-      Effect.provideService(FileSystem.FileSystem, LocalFileSystem),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.mapError(toAiError)
-    )
-});
+      return output;
+    }
+  })
+};

@@ -1,6 +1,5 @@
-import { Effect } from "effect";
-import { Chat } from "effect/unstable/ai";
-import { GithubToolLayer, GithubTools, OpenAI, model } from "./tools";
+import { generateText, isStepCount } from "ai";
+import { model, tools } from "./tools";
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -64,39 +63,23 @@ Do not find jobs just to give Deepanshu a list.
 Find jobs that are genuinely worth his time.
 `;
 
-export const GetLLMResponse = (input: string, recentMessages: readonly string[] = []) => {
-  const context = recentMessages.length > 0
-    ? `\n\nRecent conversation context:\n${recentMessages.join("\n")}`
-    : "";
-  const prompt = [
-    {
-      role: "system" as const,
-      content: SYSTEM_PROMPT
-    },
-    {
-      role: "user" as const,
-      content: `${input}${context}`
+
+export const GetLLMResponse = async (input:string) => {
+  try {
+    const response = await generateText({
+      model,
+      tools,
+      stopWhen: isStepCount(4),
+      prompt: input,
+      instructions: SYSTEM_PROMPT,
+    })
+
+    if (response.text.length == 0) {
+      return `Model Gave No Response`
     }
-  ];
-  return Effect.gen(function* () {
-    const chat = yield* Chat.empty;
-    const response = yield* chat.generateText({
-      prompt,
-      toolkit: GithubTools
-    });
 
-    if (response.text.trim().length > 0) return response.text;
-
-    const followUp = yield* chat.generateText({
-      prompt: "Use the tool result and answer the user's original question directly. Do not call another tool.",
-      toolkit: GithubTools,
-      toolChoice: "auto"
-    });
-
-    return followUp.text;
-  }).pipe(
-    Effect.provide(model),
-    Effect.provide(OpenAI),
-    Effect.provide(GithubToolLayer)
-  );
+    return response.text
+  } catch (err) {
+    return err;
+  }
 }

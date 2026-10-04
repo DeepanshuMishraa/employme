@@ -1,13 +1,9 @@
-import { Console, Effect } from "effect";
 import { SpectrumService } from "./spectrum";
 
 
-const program = Effect.gen(function* () {
-  yield* Console.log("Service Is Up");
-  const spectrum = yield* SpectrumService;
+export async function main() {
+  const spectrum = SpectrumService();
+  return spectrum
+}
 
-  return spectrum;
-});
-
-
-await Effect.runPromise(program);
+await main()
