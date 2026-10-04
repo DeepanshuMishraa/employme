@@ -1,5 +1,16 @@
 import { generateText, isStepCount } from "ai";
-import { model, tools } from "./tools";
+import { tools } from "./tools";
+import Supermemory from "supermemory";
+import { openai } from "@ai-sdk/openai";
+
+const supermemory = new Supermemory();
+
+const buildMemoryContext = async (userId: string, query: string) => {
+  const { profile } = await supermemory.profile({ containerTag: `users`, q: query });
+  const facts = [...profile.static, ...profile.dynamic];
+  if (facts.length === 0) return "";
+  return `\n\nKNOWN MEMORIES ABOUT THE USER:\n${facts.map((f) => `- ${f}`).join("\n")}`;
+};
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -64,14 +75,15 @@ Find jobs that are genuinely worth his time.
 `;
 
 
-export const GetLLMResponse = async (input:string) => {
+export const GetLLMResponse = async (input:string,userId:string | undefined) => {
   try {
+    const memoryContext = await buildMemoryContext(userId ?? "", input);
     const response = await generateText({
-      model,
+      model: openai("gpt-6-luna"),
       tools,
       stopWhen: isStepCount(4),
       prompt: input,
-      instructions: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT + memoryContext,
     })
 
     if (response.text.length == 0) {
@@ -80,6 +92,7 @@ export const GetLLMResponse = async (input:string) => {
 
     return response.text
   } catch (err) {
-    return err;
+    console.error("GetLLMResponse failed", err);
+    return "Something went wrong generating a reply. Your message was received; try again in a moment.";
   }
 }

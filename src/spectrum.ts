@@ -14,7 +14,9 @@ export const SpectrumService = async () => {
 
     for await (const [space, message] of app.messages) {
       if (message.content.type == "text") {
-        await space.send(markdown(message.content.text))
+        const response = await GetLLMResponse(message.content.text,message.sender?.id);
+
+        await space.send(markdown(response))
       } else {
         return null;
       }

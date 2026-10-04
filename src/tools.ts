@@ -6,7 +6,7 @@ import { listAllRepos, listFilesFromRepo } from "./octokit";
 import { searchJobs } from "./jobs";
 import { JobSchema } from "./schema";
 
-export const model = openai("gpt-6-luna");
+const model = openai("gpt-6-luna")
 
 const ProfileSchema = z.object({
   summary: z.string(),
