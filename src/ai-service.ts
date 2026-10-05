@@ -1,6 +1,5 @@
 import { generateText, isStepCount } from "ai";
 import { tools } from "./tools";
-import { openai } from "@ai-sdk/openai";
 import { buildMemoryModel } from "./memory";
 
 
@@ -15,6 +14,10 @@ JOB SEARCH:
 - For job requests, call search_jobs immediately instead of asking for a job URL, username, role, location, or technology list.
 - Use explicit preferences when provided. Otherwise search using Deepanshu's resume and known technical stack, then use GitHub evidence to refine the matches.
 - If a narrow search returns no jobs, broaden the search and return the closest real openings with an honest fit explanation.
+- Ashby has no global search. Choose ashbyBoards yourself: companies likely to hire for his stack, projects, and the request. Aim for 8 to 15 slugs; if some come back in unreachableAshbyBoards, retry with corrected or alternative slugs.
+- Y Combinator jobs are included. Set ycCompanyKeywords to company domains that fit his stack and the request (e.g. developer tools, infrastructure, AI). YC listings carry no full description, so judge fit from title, role type, experience, and the company one-liner.
+- search_jobs returns every match from the last 30 days by default (pass maxAgeDays to change it), newest first. Present only the ones that genuinely fit; do not dump the whole list.
+- For YC company or founder questions, use find_yc_companies (any or all batches; call it with no arguments to list batches) and get_yc_founders (by slug). Email guesses are unverified; say so, and prefer emails published on the company site.
 - Never invent compensation. The source may return null when salary is not listed.
 
 GITHUB:

@@ -1,14 +1,21 @@
 import { z } from "zod";
 import type { Job } from "./schema";
+import { ycJobs } from "./yc";
 
 export type JobQuery = {
   roles?: ReadonlyArray<string>;
   locations?: ReadonlyArray<string>;
   workMode?: "remote" | "hybrid" | "onsite";
   maxResults?: number;
+  /** Drop jobs posted longer ago than this. Defaults to 30 days. */
+  maxAgeDays?: number;
+  ashbyBoards?: ReadonlyArray<string>;
+  ycCompanyKeywords?: ReadonlyArray<string>;
 };
 
-const stripHtml = (value: string) =>
+const DEFAULT_MAX_AGE_DAYS = 30;
+
+const stripHtml =(value: string) =>
   value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
 const fetchJson = async (url: string) => {
@@ -146,11 +153,15 @@ const himalayasSchema = z.object({
   }))
 });
 
+const HIMALAYAS_PAGES = 5;
+
 const himalayas = async (query: string): Promise<Job[]> => {
-  const { jobs } = himalayasSchema.parse(
-    await fetchJson(`https://himalayas.app/jobs/api/search?q=${encodeURIComponent(query)}&page=1`)
-  );
-  return jobs.map((job) => ({
+  const pages = await Promise.all(Array.from({ length: HIMALAYAS_PAGES }, (_, index) =>
+    fetchJson(`https://himalayas.app/jobs/api/search?q=${encodeURIComponent(query)}&page=${index + 1}`)
+      .then((page) => himalayasSchema.parse(page).jobs)
+      .catch(() => [])
+  ));
+  return pages.flat().map((job) => ({
     id: `himalayas:${job.guid}`,
     company: job.companyName,
     title: job.title,
@@ -160,13 +171,84 @@ const himalayas = async (query: string): Promise<Job[]> => {
     compensation: { min: job.minSalary, max: job.maxSalary, currency: job.currency },
     applyUrl: job.applicationLink,
     sourceUrl: "https://himalayas.app/",
-    postedAt: new Date(job.pubDate).toISOString(),
+    postedAt: new Date(job.pubDate * 1000).toISOString(),
     fetchedAt: new Date().toISOString(),
     technologies: job.categories
   }));
 };
 
-// A failing source must not sink the whole search.
+const ashbySchema = z.object({
+  jobs: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    department: z.string().nullish(),
+    team: z.string().nullish(),
+    location: z.string().nullish(),
+    isListed: z.boolean(),
+    isRemote: z.boolean().nullish(),
+    workplaceType: z.string().nullish(),
+    publishedAt: z.string().nullish(),
+    jobUrl: z.string(),
+    applyUrl: z.string(),
+    descriptionPlain: z.string().nullish(),
+    compensation: z.object({
+      summaryComponents: z.array(z.object({
+        compensationType: z.string(),
+        interval: z.string(),
+        currencyCode: z.string().nullish(),
+        minValue: z.number().nullish(),
+        maxValue: z.number().nullish()
+      }))
+    }).nullish()
+  }))
+});
+
+const ashbyWorkMode = (workplaceType: string | null | undefined, isRemote: boolean | null | undefined): Job["workMode"] => {
+  const type = workplaceType?.toLowerCase();
+  if (type === "remote" || isRemote) return "remote";
+  if (type === "hybrid") return "hybrid";
+  if (type === "onsite") return "onsite";
+  return "unknown";
+};
+
+const ashbyBoard = async (board: string): Promise<Job[]> => {
+  const { jobs } = ashbySchema.parse(
+    await fetchJson(`https://api.ashbyhq.com/posting-api/job-board/${board}?includeCompensation=true`)
+  );
+  return jobs.filter((job) => job.isListed).map((job) => {
+    const salary = job.compensation?.summaryComponents.find(
+      (component) => component.compensationType === "Salary" && component.interval === "1 YEAR"
+    );
+    return {
+      id: `ashby:${board}:${job.id}`,
+      company: board,
+      title: job.title,
+      description: job.descriptionPlain ?? "",
+      location: job.location ?? null,
+      workMode: ashbyWorkMode(job.workplaceType, job.isRemote),
+      compensation: {
+        min: salary?.minValue ?? null,
+        max: salary?.maxValue ?? null,
+        currency: salary?.currencyCode ?? null
+      },
+      applyUrl: job.applyUrl,
+      sourceUrl: job.jobUrl,
+      postedAt: job.publishedAt ?? null,
+      fetchedAt: new Date().toISOString(),
+      technologies: [job.department, job.team].filter((value): value is string => !!value)
+    };
+  });
+};
+
+// Ashby has no global search; the caller picks which company boards to query.
+const ashby = async (boards: ReadonlyArray<string>) => {
+  const settled = await Promise.allSettled(boards.map(ashbyBoard));
+  return {
+    jobs: settled.flatMap((result) => result.status === "fulfilled" ? result.value : []),
+    unreachableBoards: boards.filter((_, index) => settled[index]?.status === "rejected")
+  };
+};
+
 const failedSource = (source: Promise<Job[]>) => source.catch((): Job[] => []);
 
 export const searchJobs = async (query: JobQuery) => {
@@ -175,24 +257,35 @@ export const searchJobs = async (query: JobQuery) => {
     .filter((location) => !["global", "worldwide", "anywhere"].includes(location.toLowerCase()));
   const keywords = roles.length > 0 ? roles.join(" ") : "software engineer typescript python go";
 
-  const results = await Promise.all([
+  const [arbeitnowJobs, remoteOkJobs, jobicyJobs, himalayasJobs, ycResult, ashbyResult] = await Promise.all([
     failedSource(arbeitnow()),
     failedSource(remoteOk()),
     failedSource(jobicy()),
-    failedSource(himalayas(keywords))
+    failedSource(himalayas(keywords)),
+    failedSource(ycJobs(query.ycCompanyKeywords ?? [])),
+    ashby(query.ashbyBoards ?? [])
   ]);
+  const results = [arbeitnowJobs, remoteOkJobs, jobicyJobs, himalayasJobs, ycResult, ashbyResult.jobs];
 
   const roleTerms = roles.map((role) => role.toLowerCase());
   const locationTerms = locations.map((location) => location.toLowerCase());
 
+  const cutoff = Date.now() - (query.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS) * 86_400_000;
+  const postedTime = (job: Job) => (job.postedAt ? Date.parse(job.postedAt) : Number.NaN);
+
+  // Jobs with no usable posting date are dropped: their age can't be verified against the cutoff.
   const filtered = results.flat().filter((job) => {
     const text = `${job.title} ${job.description} ${job.technologies.join(" ")}`.toLowerCase();
     const roleMatches = roleTerms.length === 0 || roleTerms.some((term) => text.includes(term));
     const locationMatches = locationTerms.length === 0 || locationTerms.some((term) => (job.location ?? "").toLowerCase().includes(term));
     const modeMatches = query.workMode !== "remote" || job.workMode === "remote";
-    return roleMatches && locationMatches && modeMatches;
+    return roleMatches && locationMatches && modeMatches && postedTime(job) >= cutoff;
   });
 
-  const unique = new Map(filtered.map((job) => [job.applyUrl, job]));
-  return { jobs: [...unique.values()].slice(0, Math.max(1, Math.min(query.maxResults ?? 20, 50))) };
+  const unique = [...new Map(filtered.map((job) => [job.applyUrl, job])).values()]
+    .sort((a, b) => postedTime(b) - postedTime(a));
+  return {
+    jobs: query.maxResults === undefined ? unique : unique.slice(0, Math.max(1, query.maxResults)),
+    unreachableAshbyBoards: ashbyResult.unreachableBoards
+  };
 };

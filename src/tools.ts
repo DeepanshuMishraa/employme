@@ -5,8 +5,11 @@ import { z } from "zod";
 import { listAllRepos, listFilesFromRepo } from "./octokit";
 import { searchJobs } from "./jobs";
 import { JobSchema } from "./schema";
+import { YcCompanies } from "./yc-companies";
 
 const model = openai("gpt-6-luna")
+
+const DESCRIPTION_PREVIEW_CHARS = 400
 
 const ProfileSchema = z.object({
   summary: z.string(),
@@ -56,10 +59,88 @@ export const tools = {
       roles: z.array(z.string()).optional(),
       locations: z.array(z.string()).optional(),
       workMode: z.enum(["remote", "hybrid", "onsite"]).optional(),
-      maxResults: z.number().int().optional()
+      maxResults: z.number().int().optional().describe("Omit to get every match."),
+      maxAgeDays: z.number().int().positive().optional().describe("Only jobs posted within this many days. Defaults to 30."),
+      ycCompanyKeywords: z.array(z.string()).optional().describe(
+        "Y Combinator company-domain keywords (e.g. 'developer tools', 'ai', 'fintech', 'infrastructure') matched against hiring YC companies' tags, industry, and one-liner. Up to 40 companies are read per search."
+      ),
+      ashbyBoards: z.array(z.string()).optional().describe(
+        "Ashby job board slugs (the part after jobs.ashbyhq.com/, e.g. 'openai') for companies that fit the candidate. Slugs that do not exist are reported back as unreachable."
+      )
     }),
-    outputSchema: z.object({ jobs: z.array(JobSchema) }),
-    execute: (query) => searchJobs(query)
+    outputSchema: z.object({ jobs: z.array(JobSchema), unreachableAshbyBoards: z.array(z.string()) }),
+    execute: async (query) => {
+      const result = await searchJobs(query);
+      // Results are uncapped, so shorten descriptions to keep the model's context manageable.
+      return {
+        ...result,
+        jobs: result.jobs.map((job) => ({ ...job, description: job.description.slice(0, DESCRIPTION_PREVIEW_CHARS) }))
+      };
+    }
+  }),
+
+  find_yc_companies: tool({
+    description: "Find Y Combinator companies from any or all batches (e.g. 'Winter 2024', 'Summer 2021'), optionally filtered by keywords and hiring status. Call with no batches to list every batch with its company count.",
+    inputSchema: z.object({
+      batches: z.array(z.string()).optional().describe("Batch names like 'Winter 2024'. Omit to search all batches."),
+      keywords: z.array(z.string()).optional().describe("Matched against name, one-liner, industry, and tags."),
+      hiringOnly: z.boolean().optional(),
+      maxResults: z.number().int().optional().describe("Defaults to 100.")
+    }),
+    outputSchema: z.object({
+      batches: z.array(z.object({ batch: z.string(), count: z.number() })).optional(),
+      totalMatches: z.number().optional(),
+      companies: z.array(z.object({
+        name: z.string(),
+        slug: z.string(),
+        batch: z.string().nullable(),
+        website: z.string(),
+        oneLiner: z.string(),
+        industry: z.string(),
+        teamSize: z.number().nullable(),
+        tags: z.array(z.string()),
+        isHiring: z.boolean(),
+        ycUrl: z.string()
+      })).optional()
+    }),
+    execute: async ({ batches = [], keywords = [], hiringOnly, maxResults = 100 }) => {
+      if (batches.length === 0 && keywords.length === 0 && !hiringOnly) {
+        return { batches: await YcCompanies.batches() };
+      }
+      const terms = keywords.map((keyword) => keyword.toLowerCase());
+      const matches = (await YcCompanies.inBatches(batches)).filter((company) => {
+        const text = [company.name, company.oneLiner, company.industry, ...company.tags].join(" ").toLowerCase();
+        return (!hiringOnly || company.isHiring) && (terms.length === 0 || terms.some((term) => text.includes(term)));
+      });
+      return { totalMatches: matches.length, companies: matches.slice(0, Math.max(1, maxResults)) };
+    }
+  }),
+
+  get_yc_founders: tool({
+    description: "Get founders (name, title, LinkedIn, X) and likely contact emails for YC companies by slug. Emails are either published on the company's site or unverified pattern guesses. Up to 10 slugs per call.",
+    inputSchema: z.object({ slugs: z.array(z.string()).min(1).max(10) }),
+    outputSchema: z.object({
+      companies: z.array(z.discriminatedUnion("ok", [
+        z.object({
+          slug: z.string(),
+          ok: z.literal(true),
+          website: z.string(),
+          linkedin: z.string().nullable(),
+          twitter: z.string().nullable(),
+          siteEmails: z.array(z.string()),
+          founders: z.array(z.object({
+            name: z.string(),
+            title: z.string(),
+            linkedin: z.string().nullable(),
+            twitter: z.string().nullable(),
+            publishedEmails: z.array(z.string()),
+            emailGuesses: z.array(z.string())
+          }))
+        }),
+        z.object({ slug: z.string(), ok: z.literal(false), error: z.string() })
+      ]))
+    }),
+    execute: async ({ slugs }) => ({ companies: await Promise.all(slugs.map(YcCompanies.founders)) })
   }),
 
   list_github_repositories: tool({
