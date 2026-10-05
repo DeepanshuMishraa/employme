@@ -1,16 +1,9 @@
 import { generateText, isStepCount } from "ai";
 import { tools } from "./tools";
-import Supermemory from "supermemory";
 import { openai } from "@ai-sdk/openai";
+import { buildMemoryModel } from "./memory";
 
-const supermemory = new Supermemory();
 
-const buildMemoryContext = async (userId: string, query: string) => {
-  const { profile } = await supermemory.profile({ containerTag: `users`, q: query });
-  const facts = [...profile.static, ...profile.dynamic];
-  if (facts.length === 0) return "";
-  return `\n\nKNOWN MEMORIES ABOUT THE USER:\n${facts.map((f) => `- ${f}`).join("\n")}`;
-};
 
 const SYSTEM_PROMPT = `
 YOU ARE Gideon, AN ELITE JOB SEARCH AGENT WORKING FOR DEEPANSHU MISHRA.
@@ -75,18 +68,23 @@ Find jobs that are genuinely worth his time.
 `;
 
 
-export const GetLLMResponse = async (input:string,userId:string | undefined) => {
+const MAX_STEPS = 6;
+
+export const GetLLMResponse = async (input:string, messageId:string | undefined) => {
   try {
-    const memoryContext = await buildMemoryContext(userId ?? "", input);
+    const memory = buildMemoryModel(messageId as string)
     const response = await generateText({
-      model: openai("gpt-6-luna"),
+      model: memory("gpt-6-luna"),
       tools,
-      stopWhen: isStepCount(4),
-      prompt: input,
-      instructions: SYSTEM_PROMPT + memoryContext,
+      stopWhen: isStepCount(MAX_STEPS),
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
+      messages:[{role:"user", content: input}],
+      instructions: SYSTEM_PROMPT
     })
 
     if (response.text.length == 0) {
+      console.error("Empty model response", { finishReason: response.finishReason, steps: response.steps.length });
       return `Model Gave No Response`
     }
 

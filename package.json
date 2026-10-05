@@ -13,11 +13,11 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.83",
+    "@ai-sdk/openai": "3.0.124",
+    "@mem0/vercel-ai-provider": "^3.0.3",
     "ai": "^7.0.127",
     "octokit": "^5.0.5",
     "spectrum-ts": "^12.8.0",
-    "supermemory": "^4.25.4",
     "zod": "^4.6.5"
   }
 }

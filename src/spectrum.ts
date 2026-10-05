@@ -12,17 +12,24 @@ export const SpectrumService = async () => {
       providers: [imessage.config()]
     });
 
+    const handled = new Set<string>();
+
     for await (const [space, message] of app.messages) {
-      if (message.content.type == "text") {
-        const response = await GetLLMResponse(message.content.text,message.sender?.id);
+      console.log("incoming", message.content.type, message.direction, message.id);
+      if (message.content.type != "text" || message.direction != "inbound") continue;
+      if (handled.has(message.id)) continue;
+      handled.add(message.id);
+      try {
+        const response = await GetLLMResponse(message.content.text,message.id);
 
         await space.send(markdown(response))
-      } else {
-        return null;
+      } catch (err) {
+        console.error("Failed to handle message", err);
       }
     }
 
   } catch (err) {
+    console.error("SpectrumService stopped", err);
     return err;
   }
 }
