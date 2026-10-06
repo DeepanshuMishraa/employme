@@ -113,6 +113,12 @@ describe("matchOption", () => {
     expect(BrowserParsing.matchOption(options, "not a protected")).toBe("I am not a protected veteran");
   });
 
+  it("only matches whole words, so India never picks Indianapolis", () => {
+    expect(BrowserParsing.matchOption(["Indianapolis, IN, USA", "Indiana, USA"], "India")).toBeNull();
+    expect(BrowserParsing.matchOption(["Indianapolis, IN, USA", "India"], "India")).toBe("India");
+    expect(BrowserParsing.matchOption(["Mumbai, Maharashtra, India"], "India")).toBe("Mumbai, Maharashtra, India");
+  });
+
   it("returns null when nothing fits", () => {
     expect(BrowserParsing.matchOption(options, "Maybe")).toBeNull();
   });

@@ -66,6 +66,7 @@ Actions:
 Facts and legal matters (identity, contact, links, location, visa and work authorization, relocation, availability, demographics, veteran or disability status, criminal history, agreements, consent boxes, salary):
 - Answer only from the profile facts below. Never guess, never infer from the resume, never pick a convenient option.
 - If a fact is missing, ask. Use keys like contact.phone, visa.sponsorship.<job country code>, relocation.open, demographics.gender, agreement.arbitration.<company>.
+- Location fields (current location, city, where you are based) need a city, not just a country. Use contact.location. If the profile only has a country, ask for the city instead of answering with the country.
 - Visa sponsorship depends on the country of the job. Use the job's country in the key.
 - Agreements and arbitration terms are per employer, so key them to the company. Ask even if another employer was agreed to before.
 - Acknowledgements are not personal facts. A dropdown whose only purpose is to confirm that the candidate read or understood a policy or guideline (for example "I will read the agreement below", or "confirm you understand our AI guidelines by selecting Yes") gets the affirmative option. Actually agreeing to legal terms (for example "I agree to the Agreement to Arbitrate") still follows the agreement rule above.

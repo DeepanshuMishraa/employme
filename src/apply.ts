@@ -12,11 +12,21 @@ const SCREENSHOT_DIR = "data/screens";
 const JOB_TEXT_CHARS = 4_000;
 const CODE_WAIT_MS = 90_000;
 const SETTLE_MS = 5_000;
-const NON_FORM_LABEL = /^(enter manually|security code|verification code)$/i;
+const NON_FORM_LABEL = /^(enter manually|security code|verification code)$|i am human|captcha|not a robot/i;
 const CODE_BOX = /security code|verification code/i;
 const UPLOAD_FAILURE = /cannot read properties|upload failed|failed to upload/i;
 const CONFIRMATION_TEXT = /thank you for applying|application (has been )?(received|submitted)|successfully submitted/i;
 const CONFIRMATION_URL = /confirmation|thank-?you|submitted/i;
+
+/**
+ * What to click to reveal a form, most specific first. A bare "Apply" is only trusted as a button:
+ * as a link it is usually site navigation (on YC it leads to the batch application, not the job).
+ */
+const APPLY_TARGETS: [RegExp, readonly string[]][] = [
+  [/^apply (to|for) (this )?(role|job|position)/i, ["button", "link"]],
+  [/^apply now/i, ["button", "link"]],
+  [/^apply$/i, ["button"]]
+];
 
 export type PrepareResult =
   | { status: "needs_input"; id: number; questions: Question[] }
@@ -52,10 +62,13 @@ const readFields = async (): Promise<Result<Field[]>> => {
 const readFormFields = async (): Promise<Result<Field[]>> => {
   const first = await readFields();
   if (!first.ok || first.value.length > 0) return first;
-  const clicked = await Browser.clickButton(/^apply/i);
-  if (!clicked.ok) return first;
-  await Browser.wait(2000);
-  return readFields();
+  for (const [name, roles] of APPLY_TARGETS) {
+    const clicked = await Browser.clickButton(name, roles);
+    if (!clicked.ok) continue;
+    await Browser.wait(2000);
+    return readFields();
+  }
+  return first;
 };
 
 const attachResume = async (pdf: Result<string>, resumeText: string) => {

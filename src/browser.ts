@@ -185,14 +185,22 @@ const toChoiceFields = (nodes: Node[]): Field[] =>
     }))
   );
 
-/** Picks the option closest to `wanted`: exact, then prefix, then substring, ignoring case. */
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Picks the option closest to `wanted`: exact, then prefix, then substring, ignoring case.
+ * Prefix and substring matches must end on a word boundary, so "India" matches "India +91" but
+ * never "Indianapolis".
+ */
 const matchOption = (options: string[], wanted: string) => {
   const target = normalize(wanted).toLowerCase();
   const lowered = options.map((option) => normalize(option).toLowerCase());
+  const word = new RegExp(`(^|[^a-z0-9])${escapeRegExp(target)}($|[^a-z0-9])`);
+  const wordAtStart = new RegExp(`^${escapeRegExp(target)}($|[^a-z0-9])`);
   const index = [
     lowered.indexOf(target),
-    lowered.findIndex((option) => option.startsWith(target)),
-    lowered.findIndex((option) => option.includes(target))
+    lowered.findIndex((option) => wordAtStart.test(option)),
+    lowered.findIndex((option) => word.test(option))
   ].find((candidate) => candidate >= 0);
   return index === undefined ? null : (options[index] ?? null);
 };
@@ -242,6 +250,7 @@ const fieldRef = async (label: string, ordinal: number): Promise<Result<string>>
 const clickRef = (ref: string) => run(["click", `@${ref}`]);
 
 const OPTION_RETRY_WAIT_MS = 400;
+const TYPEAHEAD_WAIT_MS = 1_200;
 
 /** Reads the options of the open dropdown. Lists render late after another dropdown closes, so an empty read gets one retry. */
 const optionNodes = async (): Promise<Result<Node[]>> => {
@@ -266,6 +275,22 @@ const openDropdown = async (ref: string): Promise<Result<Node[]>> => {
     options = found.value;
   }
   return Result.ok(options);
+};
+
+/**
+ * Closes an open dropdown by clicking its control again. Escape would also close a modal form
+ * (YC's apply form is one), so it is only used if the list is still showing afterwards.
+ */
+const closeDropdown = async (ref: string) => {
+  await clickRef(ref);
+  const left = await optionNodesNow();
+  if (left.length > 0) await run(["press", "Escape"]);
+};
+
+/** Options visible right now, without the retry wait. */
+const optionNodesNow = async (): Promise<Node[]> => {
+  const snapshot = await run(["snapshot", "-i"]);
+  return snapshot.ok ? parseSnapshot(snapshot.value).filter((node) => node.role === "option") : [];
 };
 
 /**
@@ -336,19 +361,27 @@ export const Browser = {
     const ref = await fieldRef(label, ordinal);
     if (!ref.ok) return ref;
     const found = await openDropdown(ref.value);
-    await run(["press", "Escape"]);
+    if (found.ok && found.value.length > 0) await closeDropdown(ref.value);
     return found.ok ? Result.ok(found.value.map((node) => node.name)) : found;
   },
 
   pick: async (label: string, ordinal: number, wanted: string): Promise<Result<string>> => {
     const ref = await fieldRef(label, ordinal);
     if (!ref.ok) return ref;
-    const found = await openDropdown(ref.value);
-    if (!found.ok) return found;
+    const opened = await openDropdown(ref.value);
+    if (!opened.ok) return opened;
+    // Typeahead boxes (a location search) list nothing until text is typed.
+    let found: Result<Node[]> = opened;
+    if (opened.value.length === 0) {
+      await run(["fill", `@${ref.value}`, wanted]);
+      await run(["wait", String(TYPEAHEAD_WAIT_MS)]);
+      found = await optionNodes();
+      if (!found.ok) return found;
+    }
     const choice = matchOption(found.value.map((node) => node.name), wanted);
     const target = found.value.find((node) => node.name === choice);
     if (!choice || !target?.ref) {
-      await run(["press", "Escape"]);
+      await closeDropdown(ref.value);
       const seen = found.value.slice(0, 6).map((node) => node.name).join(" | ");
       return Result.err(`No option matching "${wanted}" for "${label}". ${found.value.length} options seen${seen ? `, first: ${seen}` : ""}.`);
     }
@@ -356,10 +389,10 @@ export const Browser = {
     return clicked.ok ? Result.ok(choice) : clicked;
   },
 
-  clickButton: async (name: RegExp): Promise<Result<string>> => {
+  clickButton: async (name: RegExp, roles: readonly string[] = ["button", "link"]): Promise<Result<string>> => {
     const snapshot = await nodes(true);
     if (!snapshot.ok) return snapshot;
-    const button = snapshot.value.find((node) => (node.role === "button" || node.role === "link") && node.ref && name.test(node.name));
+    const button = snapshot.value.find((node) => roles.includes(node.role) && node.ref && name.test(node.name));
     if (!button?.ref) return Result.err(`No button matching ${name} on the page.`);
     const clicked = await clickRef(button.ref);
     return clicked.ok ? Result.ok(button.name) : clicked;
