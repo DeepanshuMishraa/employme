@@ -1,6 +1,12 @@
 # dependencies (bun install)
 node_modules
 
+# local state: applications db, Gmail token, screenshots, generated resume
+data
+
+# personal facts the agent keeps about the user
+refs/profile.md
+
 # output
 out
 dist

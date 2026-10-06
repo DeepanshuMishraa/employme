@@ -1,13 +1,11 @@
-import { openai } from "@ai-sdk/openai";
 import { generateText, Output, tool } from "ai";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { listAllRepos, listFilesFromRepo } from "./octokit";
 import { searchJobs } from "./jobs";
+import { model } from "./model";
 import { JobSchema } from "./schema";
 import { YcCompanies } from "./yc-companies";
-
-const model = openai("gpt-6-luna")
 
 const DESCRIPTION_PREVIEW_CHARS = 400
 

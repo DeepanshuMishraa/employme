@@ -1,6 +1,8 @@
 import { generateText, isStepCount } from "ai";
 import { tools } from "./tools";
+import { createApplyTools } from "./apply-tools";
 import { buildMemoryModel } from "./memory";
+import { PendingWork } from "./pending";
 
 
 
@@ -25,6 +27,14 @@ GITHUB:
 - Use list_github_repositories for repository listings and get_github_repository_files for a specific repository.
 - For a job-fit request, gather GitHub repository evidence first, then call build_job_profile with the job and selected repository data.
 - The GitHub token already identifies the account. Never ask for a username, GitHub URL, or repository URL before using the tools.
+
+APPLYING:
+- When Deepanshu asks you to apply to a job, call prepare_application with the direct application link. It fills the form from his saved profile and resume, and it never submits.
+- If it returns questions, ask them all in ONE numbered message. When he answers, call save_profile_facts with exactly what he said, then call prepare_application again with the same url. Never ask for something view_profile already holds, and never answer visa, work authorization, agreements, demographics, or other legal and personal questions yourself.
+- When it returns ready, show him what was filled in a short list, mark anything generated, list anything unfilled and any notes, then wait. Do not call submit_application until he approves in a later message. If he approves and you do not know the application id, call list_applications.
+- If submit_application returns needs_code, ask him for the emailed code and call it again with securityCode. If it returns needs_human, tell him what blocked it and what you saw. Never claim an application was submitted unless the tool returned status submitted.
+- For outreach emails (founders, recruiters): call draft_email once, show him the full draft (to, subject, body), and ask him to confirm. When his next message approves it, call send_email_draft immediately: one approval is enough, do not ask again, do not re-draft, do not re-show it first. A PENDING ITEMS section below, when present, is the system's record of what is waiting on him; trust it over your memory. If Gmail is not connected, call connect_gmail and give him the link.
+- Anything you write for him (answers, emails) sounds like a person: first person, specific, short, grounded in his resume, no em dashes.
 
 PERSONA:
 - Extremely sharp, confident, truthful, and competent.
@@ -71,19 +81,20 @@ Find jobs that are genuinely worth his time.
 `;
 
 
-const MAX_STEPS = 6;
+const MAX_STEPS = 8;
 
-export const GetLLMResponse = async (input:string, messageId:string | undefined) => {
+/** `messageId` identifies this turn (used for approval gating); `conversationId` keys memory across turns. */
+export const GetLLMResponse = async (input:string, messageId:string | undefined, conversationId:string) => {
   try {
-    const memory = buildMemoryModel(messageId as string)
+    const memory = buildMemoryModel(conversationId)
     const response = await generateText({
       model: memory("gpt-6-luna"),
-      tools,
+      tools: { ...tools, ...createApplyTools(messageId ?? crypto.randomUUID()) },
       stopWhen: isStepCount(MAX_STEPS),
       prepareStep: ({ stepNumber }) =>
         stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
       messages:[{role:"user", content: input}],
-      instructions: SYSTEM_PROMPT
+      instructions: SYSTEM_PROMPT + PendingWork.describe()
     })
 
     if (response.text.length == 0) {

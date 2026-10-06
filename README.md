@@ -31,6 +31,31 @@ Your resume belongs in:
 refs/resume.md
 ```
 
+## Applying to jobs
+
+The agent can fill application forms (Greenhouse and Ashby tested) and draft outreach emails. It never submits or sends without your approval in a later message.
+
+1. Chrome for the browser layer, once: `./node_modules/.bin/agent-browser install`.
+2. Facts it needs about you live in `refs/profile.md` (gitignored). It seeds name, email, and links from the resume, asks you once for anything else (visa, relocation, demographics), saves the answer, and never asks again. Edit the file to correct anything.
+3. Optional Gmail, for reading emailed verification codes and creating or sending approved drafts. Create a Google Cloud OAuth client (Web application) with redirect `http://localhost:3000/oauth/google/callback`, enable the Gmail API, then add to `.env`:
+
+```env
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+# GOOGLE_REDIRECT_URI=...        defaults to the localhost callback above
+# OAUTH_PORT=3000
+# MAX_APPLICATIONS_PER_DAY=10
+```
+
+Ask the agent to connect Gmail and open the link it sends. The token is stored in `data/` (gitignored). While the app is in Google's Testing mode the token expires after about 7 days.
+
+Local state (applications database, screenshots, Gmail token, generated resume PDF) lives in `data/`.
+
+```bash
+bun run check   # typecheck
+bun run test    # unit tests
+```
+
 ## Run
 
 ```bash
