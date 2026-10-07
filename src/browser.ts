@@ -408,6 +408,18 @@ export const Browser = {
     return focused.ok ? run(["keyboard", "type", text]) : focused;
   },
 
+  /** Runs JavaScript in the page. The CLI prints the result as a JSON-encoded string, so callers return JSON.stringify(...). */
+  eval: async (script: string): Promise<Result<string>> => {
+    const evaluated = await run(["eval", script]);
+    if (!evaluated.ok) return evaluated;
+    try {
+      const value: unknown = JSON.parse(evaluated.value);
+      return Result.ok(typeof value === "string" ? value : evaluated.value);
+    } catch {
+      return Result.ok(evaluated.value);
+    }
+  },
+
   upload: (selector: string, path: string) => run(["upload", selector, path]),
   screenshot: (path: string) => run(["screenshot", "--full", path]),
   pdf: (path: string) => run(["pdf", path])

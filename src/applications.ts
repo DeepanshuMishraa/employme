@@ -16,6 +16,15 @@ db.run(`
   )
 `);
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS captcha_solves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 export const ApplicationStatusSchema = z.enum(["preparing", "needs_input", "prepared", "submitted", "needs_human", "failed"]);
 export type ApplicationStatus = z.infer<typeof ApplicationStatusSchema>;
 
@@ -79,6 +88,15 @@ export const Applications = {
       id
     );
   },
+
+  recordCaptchaSolve: (provider: string, kind: string) => {
+    db.query("INSERT INTO captcha_solves (provider, kind) VALUES (?, ?)").run(provider, kind);
+  },
+
+  captchaSolvesToday: () =>
+    z
+      .object({ count: z.number() })
+      .parse(db.query("SELECT COUNT(*) AS count FROM captcha_solves WHERE date(created_at) = date('now')").get()).count,
 
   submittedToday: () => {
     const row = z

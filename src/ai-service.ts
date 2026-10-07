@@ -1,4 +1,5 @@
-import { generateText, isStepCount } from "ai";
+import { generateText, isStepCount, type ModelMessage } from "ai";
+import { History } from "./history";
 import { tools } from "./tools";
 import { createApplyTools } from "./apply-tools";
 import { buildMemoryModel } from "./memory";
@@ -83,24 +84,34 @@ Find jobs that are genuinely worth his time.
 
 const MAX_STEPS = 8;
 
-/** `messageId` identifies this turn (used for approval gating); `conversationId` keys memory across turns. */
-export const GetLLMResponse = async (input:string, messageId:string | undefined, conversationId:string) => {
+/** `messageId` identifies this turn (used for approval gating). */
+export const GetLLMResponse = async (input:string, messageId:string | undefined) => {
   try {
-    const memory = buildMemoryModel(conversationId)
+    const memory = buildMemoryModel()
+    const history = await History.load()
+    // Prompt cache matches an exact prefix: static instructions, then history, then the volatile
+    // pending state last so it never invalidates the cached part.
+    const summaryMessages: ModelMessage[] = history.summary
+      ? [{ role: "user", content: `SUMMARY OF EARLIER CONVERSATION:\n${history.summary}` }]
+      : [];
     const response = await generateText({
       model: memory("gpt-6-luna"),
       tools: { ...tools, ...createApplyTools(messageId ?? crypto.randomUUID()) },
       stopWhen: isStepCount(MAX_STEPS),
       prepareStep: ({ stepNumber }) =>
         stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : {},
-      messages:[{role:"user", content: input}],
-      instructions: SYSTEM_PROMPT + PendingWork.describe()
+      messages: [...summaryMessages, ...history.messages, { role: "user", content: input + PendingWork.describe() }],
+      instructions: SYSTEM_PROMPT
     })
 
     if (response.text.length == 0) {
       console.error("Empty model response", { finishReason: response.finishReason, steps: response.steps.length });
       return `Model Gave No Response`
     }
+
+    History.append("user", input);
+    History.append("assistant", response.text);
+    History.compactInBackground();
 
     return response.text
   } catch (err) {

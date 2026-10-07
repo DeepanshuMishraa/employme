@@ -20,7 +20,7 @@ export const SpectrumService = async () => {
       if (handled.has(message.id)) continue;
       handled.add(message.id);
       try {
-        const response = await GetLLMResponse(message.content.text, message.id, space.id);
+        const response = await GetLLMResponse(message.content.text, message.id);
 
         await space.send(markdown(response))
       } catch (err) {

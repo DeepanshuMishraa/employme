@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Applications } from "./applications";
 import { Browser, type Field } from "./browser";
+import { Captcha } from "./captcha";
 import { Form, type PlanField, type Question } from "./form";
 import { Gmail } from "./gmail";
 import { Profile } from "./profile";
@@ -108,6 +109,29 @@ const abandon = async (id: number, error: string): Promise<{ status: "failed"; e
   return { status: "failed", error };
 };
 
+const captchaCap = () => Number(process.env.CAPTCHA_MAX_PER_DAY ?? 20);
+
+type CaptchaOutcome = { solved: true; note: null } | { solved: false; note: string | null };
+
+/**
+ * Called only after the user approved the submit and the site did not confirm. Does nothing
+ * unless a solver is configured, and every solve counts against a daily cap.
+ */
+const trySolveCaptcha = async (): Promise<CaptchaOutcome> => {
+  const found = await Captcha.detect();
+  if (!found.ok || !found.value) return { solved: false, note: null };
+  const captcha = found.value;
+  const solver = Captcha.configuredSolver();
+  if (!solver) return { solved: false, note: `A ${captcha.kind} captcha is blocking the submit. No solver is configured, so solve it yourself or set CAPTCHA_SOLVER and NOCAPTCHAAI_API_KEY.` };
+  if (!solver.supports(captcha.kind)) return { solved: false, note: `A ${captcha.kind} captcha is blocking the submit. ${solver.name} has no confirmed support for it.` };
+  if (Applications.captchaSolvesToday() >= captchaCap()) return { solved: false, note: `Daily captcha solve cap of ${captchaCap()} reached.` };
+  const token = await solver.solve(captcha, await Browser.url());
+  if (!token.ok) return { solved: false, note: `Captcha solve failed: ${token.error}` };
+  Applications.recordCaptchaSolve(solver.name, captcha.kind);
+  const injected = await Captcha.inject(captcha.kind, token.value);
+  return injected.ok ? { solved: true, note: null } : { solved: false, note: `Solved the captcha but could not place the token: ${injected.error}` };
+};
+
 const prepare = async (url: string, turnId: string): Promise<PrepareResult> => {
   const row = Applications.begin(url, "");
   if (!row) return { status: "failed", error: "Could not record the application in the local database." };
@@ -211,6 +235,18 @@ const submit = async (id: number, turnId: string, securityCode?: string): Promis
   await Browser.wait(SETTLE_MS);
   let state = await classify();
 
+  let captchaNote: string | null = null;
+  if (state === "unknown") {
+    const outcome = await trySolveCaptcha();
+    captchaNote = outcome.note;
+    if (outcome.solved) {
+      const retried = await clickSubmit();
+      if (!retried.ok) return { status: "failed", error: retried.error };
+      await Browser.wait(SETTLE_MS);
+      state = await classify();
+    }
+  }
+
   if (state === "needs_code" && !securityCode) {
     if (!(await Gmail.isConnected())) {
       return { status: "needs_code", id, message: "The site emailed a verification code. Ask the user for it, then call submit_application again with securityCode." };
@@ -234,7 +270,7 @@ const submit = async (id: number, turnId: string, securityCode?: string): Promis
   }
 
   const text = await Browser.text();
-  const problems = [...new Set(text.split("\n").flatMap((line) => /"([^"]*(?:required|invalid|error|captcha|verify|try again|incorrect)[^"]*)"/i.exec(line)?.[1] ?? []))].slice(0, 8);
+  const problems = [...new Set([...(captchaNote ? [captchaNote] : []), ...text.split("\n").flatMap((line) => /"([^"]*(?:required|invalid|error|captcha|verify|try again|incorrect)[^"]*)"/i.exec(line)?.[1] ?? [])])].slice(0, 8);
   const shot = await screenshot(id);
   Applications.update(id, "needs_human", problems.join(" | "));
   await Browser.close();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BrowserParsing } from "./browser";
+import { Captcha, CaptchaParsing } from "./captcha";
 import { Form, type PlanField } from "./form";
 import { GmailParsing } from "./gmail";
 import { Profile } from "./profile";
@@ -215,5 +216,35 @@ describe("resume html", () => {
     const html = ResumeParsing.toHtml("# Name <b>\n- did **a thing** & more");
     expect(html).toContain("<h1>Name &lt;b&gt;</h1>");
     expect(html).toContain("<li>did <b>a thing</b> &amp; more</li>");
+  });
+});
+
+describe("captcha", () => {
+  it("reads the token from either response field", () => {
+    expect(CaptchaParsing.tokenOf({ errorId: 0, solution: { gRecaptchaResponse: "abc" } })).toBe("abc");
+    expect(CaptchaParsing.tokenOf({ errorId: 0, solution: { token: "xyz" } })).toBe("xyz");
+    expect(CaptchaParsing.tokenOf({ errorId: 0, taskId: "1" })).toBeNull();
+  });
+
+  it("embeds the token as a JSON string so quotes cannot break out of the script", () => {
+    const script = CaptchaParsing.injectScript("recaptcha-v2", 'a"b);alert(1);//');
+    expect(script).toContain(JSON.stringify('a"b);alert(1);//'));
+    expect(script).not.toContain('a"b);alert');
+  });
+
+  it("only maps task types that are confirmed in the provider docs", () => {
+    expect(Object.keys(CaptchaParsing.NOCAPTCHAAI_TASKS).sort()).toEqual(["recaptcha-v2", "turnstile"]);
+  });
+
+  it("is off unless both the provider and the key are configured", () => {
+    const saved = { solver: process.env.CAPTCHA_SOLVER, key: process.env.NOCAPTCHAAI_API_KEY };
+    delete process.env.CAPTCHA_SOLVER;
+    process.env.NOCAPTCHAAI_API_KEY = "k";
+    expect(Captcha.configuredSolver()).toBeNull();
+    process.env.CAPTCHA_SOLVER = "nocaptchaai";
+    expect(Captcha.configuredSolver()?.supports("hcaptcha")).toBe(false);
+    expect(Captcha.configuredSolver()?.supports("recaptcha-v2")).toBe(true);
+    if (saved.solver === undefined) delete process.env.CAPTCHA_SOLVER; else process.env.CAPTCHA_SOLVER = saved.solver;
+    if (saved.key === undefined) delete process.env.NOCAPTCHAAI_API_KEY; else process.env.NOCAPTCHAAI_API_KEY = saved.key;
   });
 });
